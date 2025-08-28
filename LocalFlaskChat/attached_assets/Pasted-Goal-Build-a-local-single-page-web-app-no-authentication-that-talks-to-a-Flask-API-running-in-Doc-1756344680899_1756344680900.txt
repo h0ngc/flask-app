@@ -1,0 +1,220 @@
+Goal
+Build a local, single-page web app (no authentication) that talks to a Flask API running in Docker on http://localhost:8000
+. The UI orchestrates a 3-step pipeline for video review data: (1) pull data, (2) create video descriptions + product info, (3) run judgement; then displays results split by Yes / N/A / No, supports 12 model variants, and lets the user override labels and clear all data.
+
+Tech + Structure
+
+Pure frontend: HTML + CSS + JavaScript (or React if you prefer). No bundlers required; keep it runnable by opening index.html.
+
+Responsive, clean, modern UI. Use a sticky global header that remains across route/section changes.
+
+Keep state in memory, plus persist the current UUID in localStorage under activeUUID.
+
+All requests go to http://localhost:8000 with JSON payloads (Content-Type: application/json). Assume CORS enabled by the server.
+
+Header (always visible, sticky)
+
+Left: App title.
+
+Center-left: 12 model variants as a scrollable segmented control or dropdown with searchable list. Changing the model updates the body view without reloading. Model options (exact text):
+
+qwen_CoT_video_image_info
+
+qwen_CoT_video_image_raw
+
+qwen_CoT_description_info
+
+qwen_video_image_info
+
+qwen_video_image_raw
+
+qwen_description_info
+
+smol_CoT_video_image_info
+
+smol_CoT_video_image_raw
+
+smol_CoT_description_info
+
+smol_video_image_info
+
+smol_video_image_raw
+
+smol_description_info
+
+Right:
+
+Today’s date in YYYY-MM-DD (KST) using the browser’s clock converted to Asia/Seoul.
+
+Days-back input (integer; placeholder “1 day, 2 days, …”).
+
+Data Pull button: on click, generate a new UUID (v4), store it in localStorage.activeUUID, and call the API below. Show the active UUID in the header with a copy icon.
+
+API contracts (frontend expectations; implement on Flask side)
+Use these placeholder endpoints and payloads; return JSON. You can change them later server-side; just keep the shapes.
+
+Data pull
+
+POST /pull_data
+
+Body: { "uuid": "<uuid>", "days_back": <int> }
+
+Response: { "ok": true }
+
+Step buttons (all under the selected model)
+
+Make Video Description
+
+POST /make_video_description
+
+Body: { "uuid": "<uuid>", "model": "<model_name>" }
+
+Response: { "ok": true }
+
+Make Product Info
+
+POST /make_product_info
+
+Body: { "uuid": "<uuid>", "model": "<model_name>" }
+
+Response: { "ok": true }
+
+Judgement
+
+POST /judge
+
+Body: { "uuid": "<uuid>", "model": "<model_name>" }
+
+Response: { "ok": true }
+
+Status polling (to flip buttons to “Complete” when CSVs exist)
+
+GET /status?uuid=<uuid>&model=<model_name>
+
+Response:
+
+{
+  "video_description_csv": "pending|complete",
+  "product_info_csv": "pending|complete",
+  "judgement_csv": "pending|complete"
+}
+
+
+The UI polls every 5s while any step is pending. Each step button switches from “Run” to “Complete” when status turns complete. Only show Show Results after judgement_csv is complete.
+
+Results
+
+GET /results?uuid=<uuid>&model=<model_name>
+
+Response (JSON converted from your CSVs):
+
+{
+  "counts": { "Yes": 123, "N/A": 45, "No": 67 },
+  "items": [
+    {
+      "product_id": "P0001",
+      "product_name": "Sample Product",
+      "category": "Category A",
+      "video_url": "http://.../video.mp4",
+      "thumbnail_url": "http://.../thumb.jpg",
+      "ground_truth_image_url": "http://.../gt.jpg",
+      "label": "Yes",
+      "reason": "Why the model decided Yes...",
+      "video_description": { "key1": "val", "key2": "val" },
+      "product_info": { "brand": "X", "price": "Y", "spec": "Z" }
+    }
+  ]
+}
+
+
+Override label (move item across Yes/N/A/No and update the judgement CSV on server)
+
+POST /override_label
+
+Body: { "uuid": "<uuid>", "model": "<model_name>", "product_id": "<id>", "new_label": "Yes|N/A|No" }
+
+Response: { "ok": true }
+
+Clear all (delete every file/folder that has the current UUID across all 12 model folders)
+
+POST /clear
+
+Body: { "uuid": "<uuid>" }
+
+Response: { "ok": true }
+
+Body layout & interactions
+
+Step area (top of body) with three large buttons aligned horizontally:
+
+“Make Video Description”
+
+“Make Product Info”
+
+“Judgement”
+
+Each button: idle → running (spinner) → Complete (green state). Disabled while running.
+
+A separate Show Results button appears/enables once Judgement is complete.
+
+Results area (visible after Show Results): 3-column layout:
+
+Left rail: filter by Yes / N/A / No with badges showing counts, from /results.counts. Selecting a filter loads the item list for that label.
+
+Below filters: a vertically scrollable list of product IDs (e.g., 1–400).
+
+Main panel (details for the selected product):
+
+At top: product_name, category.
+
+Video review player (largest element).
+
+Ground-truth product thumbnail image.
+
+A compact table for the Reason.
+
+A table for Video Description (key–value).
+
+A table for Product Info (key–value).
+
+Override buttons:
+
+If current label is Yes, show “Save N/A” and “Save No”.
+
+If N/A, show “Save Yes” and “Save No”.
+
+If No, show “Save Yes” and “Save N/A”.
+
+Clicking sends POST /override_label and, on success, updates the UI list and counts in place.
+
+Footer:
+
+Clear All button. Sends POST /clear with the active UUID, clears UI state, removes localStorage.activeUUID, and generates a fresh UUID on the next Data Pull.
+
+Subtext reminding the user that all 12 models share the same UUID lifecycle.
+
+Model folders & UUID
+
+Frontend simply passes { uuid, model } to the API. Backend will create per-model folders (12 names are up to you) and write CSVs under the same UUID. Frontend doesn’t need to know paths; it only calls the endpoints and reacts to statuses/results.
+
+UX details
+
+Show non-blocking toasts for successes/errors (network failures, missing UUID, invalid days_back, etc.).
+
+Validate: Data Pull requires a positive integer in days_back. All step buttons require both active UUID and selected model.
+
+Timezone: display date in KST (Asia/Seoul).
+
+Accessibility: keyboard navigation for model selection and product list.
+
+Keep the header visible on scroll; body sections scroll independently.
+
+Deliverables
+
+A single index.html (and optional style.css, app.js) that runs locally without a build step.
+
+Clean, commented code with clear function names for each API call:
+
+pullData(uuid, daysBack), makeVideoDescription(uuid, model), makeProductInfo(uuid, model), runJudgement(uuid, model), getStatus(uuid, model), getResults(uuid, model), overrideLabel(uuid, model, productId, newLabel), clearAll(uuid).
+
+Use fetch with async/await, handle errors, and provide loading states.
